@@ -1,3 +1,4 @@
+```
 # ntag_bruteforce
 LUA Script to Bruteforce NFC tags of the type NTAG21x using a Proxmark RDV4.0 - only for 32-bit codes.
 
@@ -123,7 +124,5 @@ Because 32-bit = 8 bit then the ascii code must only be 4-chars long for this ty
 abcs
 NTAG
 FFFF
-
-[![Watch the video]()](https://github.com/keldnorman/ntag_bruteforce/blob/main/Ntag-1.webm)
-
-  
+```
+![](https://raw.githubusercontent.com/keldnorman/ntag_bruteforce/main/ntag.gif)
