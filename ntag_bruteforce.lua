@@ -1,6 +1,12 @@
+#!/usr/bin/env lua
 os.execute("clear")
 core.console('clear')
 local DEBUG = true
+-------------------------------------------------------------------------------------------------------------
+-- PRE REQ:
+-------------------------------------------------------------------------------------------------------------
+-- 1. Install lua rocks:             apt install luarocks
+-- 2. Then install lua md5 module:   luarocks install md5
 -------------------------------------------------------------------------------------------------------------
 -- USAGE:
 -------------------------------------------------------------------------------------------------------------
@@ -17,27 +23,29 @@ local DEBUG = true
 -- Will never be done but i will write them down here anyway..
 -- Output file not implemented yet
 -- Check for no combination of both -i and -s -e
--- Add  -c continue from last card or password used
 -------------------------------------------------------------------------------------------------------------
 -- PASSWORD LISTS: 
 -------------------------------------------------------------------------------------------------------------
 -- Crunch can generate all (14.776.336) combinations of 4 chars with a-z + A-Z + 0-9 like this: 
---
--- crunch 4 4 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" -o keys/4_chars_and_digits.list
--- 
--- for LINE in $(cat keys/4_chars_and_digits.list) ; do echo -n ${LINE} |xxd -p -u;done > keys/4_chars_and_digits_hex.list
---
--------------------------------------------------------------------------------------------------------------
+--                                                                                                                                                                                                                               
+-- crunch 4 4 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" -o keys/4_chars_and_digits.list                                                                                                                   
+--                                                                                                                                                                                                                               
+-- for LINE in $(cat keys/4_chars_and_digits.list) ; do echo -n ${LINE} |xxd -p -u;done > keys/4_chars_and_digits_hex.list                                                                                                       
+--                                                                                                                                                                                                                               
+-------------------------------------------------------------------------------------------------------------                                                                                                                    
 -- Required includes
 -------------------------------------------------------------------------------------------------------------
-local getopt = require('getopt')
+local getopt      = require('getopt')
 local ansicolors  = require('ansicolors')
+local md5         = require('md5')
 -------------------------------------------------------------------------------------------------------------
 -- Variables
 -------------------------------------------------------------------------------------------------------------
 local command = ''
 local option, argument
 local bruteforce = true
+local ntagformat = false
+local input_file_valid = false
 local password_is_ascii = true
 local pass_text = "Passwords in file is treated as: ASCII"
 local bruteforce_status_file = 'ntag_status.txt'
@@ -70,7 +78,7 @@ Example of how to run the script and bruteforc the card using passwords from the
 usage      = [[
 
 script run ntag_bruteforce [-s <start_id>] [-e <end_id>] [-t <timeout>] [ -o <output_file> ] [ -h for help ]
-script run ntag_bruteforce [-i <input_file>] [-t <timeout>] [ -o <output_file> ] [ -h for help ]
+script run ntag_bruteforce [-i <input_file>] [-t <timeout>] [ -o <output_file> ] [ -n | -x ] [ -h for help ]
 
 DESCRIPTION 
 
@@ -82,14 +90,22 @@ Read more about NTAGs here: https://www.nxp.com/docs/en/data-sheet/NTAG213_215_2
 -------------------------------------------------------------------------------------------------------------
 arguments   = [[
 
+    -h                            This help
     -i       input_file           Read 4 char ASCII values to test from this file (will override -s and -e )
-    -x                            Password file (-i) contains HEX values (4 x 2hex -> 32 bit/line)
     -o       output_file          Write output to this file
-    -s       0-0xFFFFFFFF         start id
-    -e       0-0xFFFFFFFF         end id
-    -t       0-99999, pause       timeout (ms) between cards 1000 = 1 second
-                                  (use the word 'pause' to wait for user input)
-    -h       this help
+    -t       0-99999, pause       timeout (ms) between cards 1000 = 1 second (use the word 'pause' to wait for user input)
+
+    # Either use the continuously test:
+
+    -s       0-0xFFFFFFFF         start HEX value
+    -e       0-0xFFFFFFFF         end   HEX value
+
+   # Or use a list of passwords from a file: 
+
+    -x       Passwords in HEX     Password file (-i) contains HEX values (4 x 2hex -> 32 bit/line like: 00112233)
+    -n       NTAG Tools format    Bruteforce with first 8 hex values of a md5 hash of the password 
+                                  The password will be prefixed with hex value 20 (space) if the
+                                  string/password is less than 4 chars
 ]]
 -------------------------------------------------------------------------------------------------------------
 -- FUNCTIONS
@@ -111,6 +127,7 @@ function read_lines_from(file)
  for line in io.lines(file) do 
   readlines[#readlines + 1] = line
  end
+ print(ansicolors.yellow..'\nLoading password file finished'..ansicolors.reset)
  return readlines
 end
 -- write to file
@@ -211,10 +228,10 @@ local function main(args)
 -------------------------------------------------------------------------------------------------------------
 -- Get arguments
 -------------------------------------------------------------------------------------------------------------
- for option, argument in getopt.getopt(args, ':s:e:t:i:o:xh') do
+ for option, argument in getopt.getopt(args, ':s:e:t:i:o:nxh') do
   -- error in options
   if optind == '?' then
-   return print('unrecognized option', args[optind -1])
+   return print('Unrecognized option', args[optind -1])
   end
   -- no options
   if option == '' then
@@ -236,7 +253,9 @@ local function main(args)
   if option == 'i' then 
    infile = argument
    if (file_check(infile) == false) then 
-    return oops('input file: '..infile..' not found') 
+    return oops('Input file: '..infile..' not found') 
+   else
+    input_file_valid = true
    end
    bruteforce = false
   end
@@ -244,16 +263,22 @@ local function main(args)
   if option == 'x' then 
    password_is_ascii = false 
    pass_text = "Passwords in file is treated as: HEX"
+   bruteforce = false
   end
   -- output file
   if option == 'o' then
    outfile = argument
    if (file_check(argument)) then
-    local answer = utils.confirm('\nthe output-file '..argument..' already exists!\nthis will delete the previous content!\ncontinue?')
+    local answer = utils.confirm('\nThe output-file '..argument..' already exists!\nthis will delete the previous content!\ncontinue?')
     if (answer == false) then 
-     return oops('quiting') 
+     return oops('Quiting') 
     end
    end
+  end
+  -- bruteforce NTAG Tools encryption
+  if option == 'n' then
+   ntagformat = true
+   bruteforce = false
   end
   -- help
   if option == 'h' then 
@@ -283,7 +308,7 @@ local function main(args)
    local c = string.format( command, n )
    core.console(c)
    print('[=] Tested password ' .. ansicolors.yellow .. ansicolors.bright .. string.format("%08X",n) .. ansicolors.reset) 
-  --  print('[+] Passwords left to try: '..ansicolors.green..ansicolors.bright..passwords_left_to_try .. ansicolors.reset..' of '..ansicolors.green..ansicolors.bright..count_lines..ansicolors.reset)
+   --  print('[+] Passwords left to try: '..ansicolors.green..ansicolors.bright..passwords_left_to_try .. ansicolors.reset..' of '..ansicolors.green..ansicolors.bright..count_lines..ansicolors.reset)
    print('[=] Ran command: "'..c..'"')
    print('[=] -------------------------------------------------------------')
    core.console('msleep -t'..timeout);
@@ -294,10 +319,14 @@ local function main(args)
   -- END BRUTEFORCE WITH CONTINUOUSLY HEX NUMBERS    --
   -----------------------------------------------------
  else
+  if not input_file_valid then 
+   return oops('Can not bruteforce without a password list file ( -i password_list_file.txt ) ') 
+  end
   -----------------------------------------------------
   -- START BRUTEFORCE WITH PASSWORDS FROM A FILE    --
   -----------------------------------------------------
   local counter = 1
+  local rc = 0
   local password
   local passwords_left_to_try
   local lines = read_lines_from(infile)
@@ -312,39 +341,48 @@ local function main(args)
     print("aborted by user")
     break
    end
-   if password_is_ascii then
-    ------------
-    -- ASCII 
-    ------------
-    local slength = string.len(lines[counter]) 
-    if string.len(lines[counter]) > 4 then
-     print('[!] Skipping password to long: ' .. lines[counter])
-     skip_to_next = 1
-    else
-     password = convert_string_to_hex(lines[counter])
-    end
+   password = lines[counter]
+   if ntagformat then
+    -- "NFC Tools" uses md5 of the password and caps it to 8 chars
+    local md5message = md5.sumhexa(password)
+    -- print ('[=] Password is: "' .. password .. '" md5: ' .. md5message )
+    password = string.sub(md5message,1,8)
+    --  print ('[=] Password to test with: "' .. password .. '"')
    else
-    ------------
-    -- HEX
-    ------------
-    password = lines[counter]                       -- Assume file contained HEX passwords
-    if string.len(password) ~= 8 then
-     print('[!] WARNING - Skipping password not 8 chars (32 bit HEX): ' .. lines[counter])
-     skip_to_next = 1
-    else
-     if not check_if_string_is_hex(password) then
-      print('[!] WARNING - Skipping password not a valid hex string: ' .. lines[counter])
+    if password_is_ascii then
+     ------------
+     -- ASCII 
+     ------------
+     local slength = string.len(lines[counter]) 
+     if string.len(lines[counter]) > 4 then
+      print('[!] Skipping password to long: ' .. lines[counter])
       skip_to_next = 1
+     else
+      password = convert_string_to_hex(lines[counter])
+     end
+    else
+     ------------
+     -- HEX
+     ------------
+     if string.len(password) ~= 8 then
+      print('[!] WARNING - Skipping password not 8 chars (32 bit HEX): ' .. lines[counter])
+      skip_to_next = 1
+     else
+      if not check_if_string_is_hex(password) then
+       print('[!] WARNING - Skipping password not a valid hex string: ' .. lines[counter])
+       skip_to_next = 1
+      end
      end
     end
    end
    if skip_to_next == 0 then
     local c = string.format( command, password )
     core.console(c)
+    -- show hex value (if not password is hex already)
     if lines[counter] ~= password then 
-     print('[=] Tested password '..ansicolors.yellow..ansicolors.bright..lines[counter]..ansicolors.reset..' (Hex: '..password..')')
+     print('[=] Tested password: "'..ansicolors.yellow..ansicolors.bright..lines[counter]..ansicolors.reset..'" (Hex: '..password..')')
     else
-     print('[=] Tested password '..ansicolors.yellow..ansicolors.bright..lines[counter]..ansicolors.reset)
+     print('[=] Tested password: "'..ansicolors.yellow..ansicolors.bright..lines[counter]..ansicolors.reset..'"')
     end
     passwords_left_to_try = count_lines - counter
     print('[+] Passwords left to try: '..ansicolors.green..ansicolors.bright..passwords_left_to_try .. ansicolors.reset..' of '..ansicolors.green..ansicolors.bright..count_lines..ansicolors.reset)
