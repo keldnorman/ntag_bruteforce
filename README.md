@@ -1,4 +1,9 @@
 ```
+PRE: 
+
+-- 1. Install lua rocks:             apt install luarocks
+-- 2. Then install lua md5 module:   luarocks install md5
+
 # ntag_bruteforce
 LUA Script to Bruteforce NFC tags of the type NTAG21x using a Proxmark RDV4.0 - only for 32-bit codes.
 
