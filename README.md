@@ -76,8 +76,8 @@ Description : Bruteforces 7 byte UID NTAG protected with a 32 bit password
  
 Usage:
 
-script run ntag_bruteforce [-s <start_id>] [-e <end_id>] [-t <timeout>] [ -o <output_file> ] [ -h for help ]
-script run ntag_bruteforce [-i <input_file>] [-t <timeout>] [ -o <output_file> ] [ -h for help ] -x
+script run ntag_bruteforce [-s <start_id>] [-e <end_id>] [-t <timeout>] [ -o <output_file> ] [ -p ] [ -h for help ]
+script run ntag_bruteforce [-i <input_file>] [-t <timeout>] [ -o <output_file> ] [ -n | -x ] [ -p ] [ -h for help ]
 
 DESCRIPTION 
 
@@ -86,18 +86,24 @@ against NFC cards of the type NTAG21x protected by a 32 bit password.
 
 Read more about NTAGs here: https://www.nxp.com/docs/en/data-sheet/NTAG213_215_216.pdf
 
-Arguments
+Arguments:
 
+    -h                            This help
     -i       input_file           Read 4 char ASCII values to test from this file (will override -s and -e )
-    -x                            Password file (-i) contains HEX values (4 x 2hex -> 32 bit/line)
     -o       output_file          Write output to this file
-    -p                            skip ping (save some time)
-    -s       0-0xFFFFFFFF         start id
-    -e       0-0xFFFFFFFF         end id
-    -t       0-99999, pause       timeout (ms) between cards 1000 = 1 second
-                                  (use the word 'pause' to wait for user input)
-    -h       this help
+    -t       0-99999, pause       Timeout (ms) between cards 1000 = 1 second (use the word 'pause' to wait for user input)
+    -p                            Skip Ping
 
+    # Either use the continuously test:
+
+    -s       0-0xFFFFFFFF         Start HEX value
+    -e       0-0xFFFFFFFF         End   HEX value
+
+   # Or use a list of passwords from a file: 
+
+    -x       Passwords in HEX     Password file (-i) contains HEX values (4 x 2hex -> 32 bit/line like: 00112233)
+    -n       NTAG Tools format    Bruteforce with first 8 hex values of a md5 hash of the password 
+                                  The password will be prefixed with hex value 20 (space) if the string/password is < 4 chars
 EXAMPLES:
   
 # Example of how to run the script with bruteforcing of continuously HEX numbers with 1 secound delay between tests:
