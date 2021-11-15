@@ -17,22 +17,35 @@ local DEBUG = true
 -------------------------------------------------------------------------------------------------------------
 -- 1.0  | Keld Norman,   | 30 okt. 2021 | Initial version
 -- 1.1  | Keld Norman,   | 30 okt. 2021 | Added: Press enter to stop the script
+-- 1.2  | Keld Norman,   | 15 Nov. 2021 | Added: Check for correct hex values for bruteforcing
+-- 1.3  | Keld Norman,   | 15 Nov. 2021 | Added: Added a skip ping option
 -------------------------------------------------------------------------------------------------------------
 -- TODO:
 -------------------------------------------------------------------------------------------------------------
--- Will never be done but i will write them down here anyway..
 -- Output file not implemented yet
--- Check for no combination of both -i and -s -e
 -------------------------------------------------------------------------------------------------------------
--- PASSWORD LISTS: 
+-- SPEEDTEST
 -------------------------------------------------------------------------------------------------------------
--- Crunch can generate all (14.776.336) combinations of 4 chars with a-z + A-Z + 0-9 like this: 
+-- BRUTEFORCE ALL HEX COMBINATIONS:
+-- 
+-- With the -t 10 ( lowest possible delay ) and FFFFFFFF attempts or in decimal 4.294.967.295 combinations
+-- 
+-- My test showed that this script can do 255 password attempts in approxemately 170 seconds
+-- 
+-- That is : 255 / 170 = 1,5 attempt/second                                                                                                                                                                                      
 --                                                                                                                                                                                                                               
--- crunch 4 4 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" -o keys/4_chars_and_digits.list                                                                                                                   
---                                                                                                                                                                                                                               
--- for LINE in $(cat keys/4_chars_and_digits.list) ; do echo -n ${LINE} |xxd -p -u;done > keys/4_chars_and_digits_hex.list                                                                                                       
+-- So ..  4.294.967.295 combinations / 1,5 per second = 2.863.311.530 seconds and it is roughly 90 years                                                                                                                         
 --                                                                                                                                                                                                                               
 -------------------------------------------------------------------------------------------------------------                                                                                                                    
+-- PASSWORD LISTS:                                                                                                                                                                                                               
+-------------------------------------------------------------------------------------------------------------
+-- Crunch can generate all (14.776.336) combinations of 4 chars with a-z + A-Z + 0-9 like this: 
+--
+-- crunch 4 4 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" -o keys/4_chars_and_digits.list
+-- 
+-- for LINE in $(cat keys/4_chars_and_digits.list) ; do echo -n ${LINE} |xxd -p -u;done > keys/4_chars_and_digits_hex.list
+--
+-------------------------------------------------------------------------------------------------------------
 -- Required includes
 -------------------------------------------------------------------------------------------------------------
 local getopt      = require('getopt')
@@ -42,7 +55,9 @@ local md5         = require('md5')
 -- Variables
 -------------------------------------------------------------------------------------------------------------
 local command = ''
+local timeout = 10 -- do not set this below 10 (if so it will not test the password)
 local option, argument
+local use_ping = true
 local bruteforce = true
 local ntagformat = false
 local input_file_valid = false
@@ -77,8 +92,8 @@ Example of how to run the script and bruteforc the card using passwords from the
 -------------------------------------------------------------------------------------------------------------
 usage      = [[
 
-script run ntag_bruteforce [-s <start_id>] [-e <end_id>] [-t <timeout>] [ -o <output_file> ] [ -h for help ]
-script run ntag_bruteforce [-i <input_file>] [-t <timeout>] [ -o <output_file> ] [ -n | -x ] [ -h for help ]
+script run ntag_bruteforce [-s <start_id>] [-e <end_id>] [-t <timeout>] [ -o <output_file> ] [ -p ] [ -h for help ]
+script run ntag_bruteforce [-i <input_file>] [-t <timeout>] [ -o <output_file> ] [ -n | -x ] [ -p ] [ -h for help ]
 
 DESCRIPTION 
 
@@ -93,19 +108,19 @@ arguments   = [[
     -h                            This help
     -i       input_file           Read 4 char ASCII values to test from this file (will override -s and -e )
     -o       output_file          Write output to this file
-    -t       0-99999, pause       timeout (ms) between cards 1000 = 1 second (use the word 'pause' to wait for user input)
+    -t       0-99999, pause       Timeout (ms) between cards 1000 = 1 second (use the word 'pause' to wait for user input)
+    -p                            Skip Ping
 
     # Either use the continuously test:
 
-    -s       0-0xFFFFFFFF         start HEX value
-    -e       0-0xFFFFFFFF         end   HEX value
+    -s       0-0xFFFFFFFF         Start HEX value
+    -e       0-0xFFFFFFFF         End   HEX value
 
    # Or use a list of passwords from a file: 
 
     -x       Passwords in HEX     Password file (-i) contains HEX values (4 x 2hex -> 32 bit/line like: 00112233)
     -n       NTAG Tools format    Bruteforce with first 8 hex values of a md5 hash of the password 
-                                  The password will be prefixed with hex value 20 (space) if the
-                                  string/password is less than 4 chars
+                                  The password will be prefixed with hex value 20 (space) if the string/password is < 4 chars
 ]]
 -------------------------------------------------------------------------------------------------------------
 -- FUNCTIONS
@@ -132,16 +147,16 @@ function read_lines_from(file)
 end
 -- write to file
 function writeOutputBytes(bytes, outfile)
- local fileout,err = io.open(outfile, "wb")
+ local fileout,err = io.open(outfile,"wb")
  if err then 
-  print("### ERROR - Faild to open output-file ".. outfile)
+  print("### ERROR - Faild to open output-file "..outfile)
   return false
  end
  for i = 1, #bytes do
   fileout:write(string.char(tonumber(bytes[i], 16)))
  end
  fileout:close()
- print("\nwrote " .. #bytes .. " bytes to " .. outfile)
+ print("\nwrote "..#bytes.." bytes to "..outfile)
  return true
 end
 -- find number of entrys in a table
@@ -165,7 +180,7 @@ local function dbg(args)
 end
 -- when errors occur
 local function oops(err)
- print(ansicolors.red..'\n### ERROR - '.. err ..ansicolors.reset)
+ print(ansicolors.red..'\n### ERROR - '..err..ansicolors.reset)
  core.clearCommandBuffer()
  return nil, err
 end
@@ -209,15 +224,25 @@ function check_if_string_is_hex(value)
   return false
  end
 end
+-- Check if number is a 0x???????? numbe (32 bit hex value)
+function check_if_number_is_hex(value)
+ local num = tonumber(value)  -- would return nil...
+ if not num then
+  return false
+ end
+ if (num < 0x00000000 or num > 0xffffffff) then  -- ...and fail here
+  return false
+ end
+ return true
+end
 -------------------------------------------------------------------------------------------------------------
 -- MAIN FUNCTION
 -------------------------------------------------------------------------------------------------------------
 local function main(args)
  local i = 0
  local bytes = {}
- local start_id = 0
+ local start_id = 0x00000000
  local end_id = 0xFFFFFFFF
- local timeout = 0
  local infile, outfile
  -- stop if no args is given
  if #args == 0 then
@@ -228,7 +253,7 @@ local function main(args)
 -------------------------------------------------------------------------------------------------------------
 -- Get arguments
 -------------------------------------------------------------------------------------------------------------
- for option, argument in getopt.getopt(args, ':s:e:t:i:o:nxh') do
+ for option, argument in getopt.getopt(args, ':s:e:t:i:o:pnxh') do
   -- error in options
   if optind == '?' then
    return print('Unrecognized option', args[optind -1])
@@ -259,6 +284,10 @@ local function main(args)
    end
    bruteforce = false
   end
+  -- skip ping
+  if option == 'p' then 
+   use_ping = false
+  end
   -- passwordlist is hex values
   if option == 'x' then 
    password_is_ascii = false 
@@ -286,33 +315,42 @@ local function main(args)
   end
  end
  -- min timeout is set to 1 sec if it is empty
- if timeout == 0 then 
-  timeout = 1000 
+ timeout = tonumber(timeout)
+ if timeout < 10 then 
+  timeout = 10 
  end 
 -------------------------------------------------------------------------------------------------------------
 -- BRUTEFORCE
 -------------------------------------------------------------------------------------------------------------
  -- select bruteforce method
  if bruteforce then
+  if not check_if_number_is_hex(start_id) then 
+   print(ansicolors.red..'\n### ERROR - start_id value '..start_id..' is out of the range of a 32-bit integer (0 to 0xFFFFFFFF) - Did you forget to add 0x ?'..ansicolors.reset)
+   return
+  end
+  if not check_if_number_is_hex(end_id) then
+   print(ansicolors.red..'\n### ERROR - end_id value '..end_id..' is out of the range of a 32-bit integer (0 to 0xFFFFFFFF) - Did you forget to add 0x ?'..ansicolors.reset)
+   return
+  end
   -----------------------------------------------------
   -- START BRUTEFORCE WITH CONTINUOUSLY HEX NUMBERS  --
   -----------------------------------------------------
   command = 'hf mfu i -k %08X'
-  msg('Bruteforcing NTAG Passwords\n\nStart value: ' .. start_id .. '\nStop value : ' .. end_id ..'\nDelay between tests: '..timeout..' ms')
-  for n = start_id, end_id do
-   -- abort if key is pressed
-   if core.kbd_enter_pressed() then
+  msg('Bruteforcing NTAG Passwords\n\nStart value: '..start_id..'\nStop value : '..end_id..'\nDelay between tests: '..timeout..' ms')
+  for hexvalue = start_id, end_id do
+   if core.kbd_enter_pressed() then -- abort if key is pressed
     print("aborted by user")
     break
    end
-   local c = string.format( command, n )
-   core.console(c)
-   print('[=] Tested password ' .. ansicolors.yellow .. ansicolors.bright .. string.format("%08X",n) .. ansicolors.reset) 
-   --  print('[+] Passwords left to try: '..ansicolors.green..ansicolors.bright..passwords_left_to_try .. ansicolors.reset..' of '..ansicolors.green..ansicolors.bright..count_lines..ansicolors.reset)
-   print('[=] Ran command: "'..c..'"')
-   print('[=] -------------------------------------------------------------')
-   core.console('msleep -t'..timeout);
-   core.console('hw ping')
+   local cmd = string.format( command, hexvalue )
+   core.console(cmd)
+   print('[=] Tested password '..ansicolors.yellow..ansicolors.bright..string.format("%08X",hexvalue)..ansicolors.reset) 
+   print('[=] Ran command: "'..cmd..'"')
+   --core.console('msleep -t'..timeout);
+   if use_ping then
+    print('[=] -------------------------------------------------------------')
+    core.console('hw ping')
+   end
    print('[=] -------------------------------------------------------------')
   end
   -----------------------------------------------------
@@ -325,71 +363,66 @@ local function main(args)
   -----------------------------------------------------
   -- START BRUTEFORCE WITH PASSWORDS FROM A FILE    --
   -----------------------------------------------------
-  local counter = 1
-  local rc = 0
   local password
+  local counter = 1
+  local skip_to_next = 0
   local passwords_left_to_try
   local lines = read_lines_from(infile)
   local count_lines = tablelength(lines)
-  local skip_to_next = 0
-  local console_output = ""
-  command = 'hf mfu i -k %4s'
-  msg('Bruteforcing NTAG Passwords\n\nUsing passwords from file: '..infile..'\nTesting '..count_lines..' passwords\nDelay between tests: '..timeout..' ms\n\n'.. pass_text)
+  msg('Bruteforcing NTAG Passwords\n\nUsing passwords from file: '..infile..'\nTesting '..count_lines..' passwords\nDelay between tests: '..timeout..' ms\n\n'..pass_text)
   while lines[counter] do
-   -- abort if key is pressed
-   if core.kbd_enter_pressed() then
+   if core.kbd_enter_pressed() then -- abort if key is pressed
     print("aborted by user")
     break
    end
    password = lines[counter]
-   if ntagformat then
-    -- "NFC Tools" uses md5 of the password and caps it to 8 chars
+   if ntagformat then -- "NFC Tools" uses md5 of the password and caps it to 8 chars
     local md5message = md5.sumhexa(password)
-    -- print ('[=] Password is: "' .. password .. '" md5: ' .. md5message )
+    -- print ('[=] Password is: "'..password..'" md5: '..md5message)
     password = string.sub(md5message,1,8)
-    --  print ('[=] Password to test with: "' .. password .. '"')
    else
     if password_is_ascii then
      ------------
      -- ASCII 
      ------------
-     local slength = string.len(lines[counter]) 
-     if string.len(lines[counter]) > 4 then
-      print('[!] Skipping password to long: ' .. lines[counter])
+     if string.len(password) > 4 then
+      print('[!] Skipping password to long: '..password)
       skip_to_next = 1
      else
-      password = convert_string_to_hex(lines[counter])
+      password = convert_string_to_hex(password)
      end
     else
      ------------
      -- HEX
      ------------
      if string.len(password) ~= 8 then
-      print('[!] WARNING - Skipping password not 8 chars (32 bit HEX): ' .. lines[counter])
+      print('[!] WARNING - Skipping password not 8 chars (32 bit HEX): '..password)
       skip_to_next = 1
      else
       if not check_if_string_is_hex(password) then
-       print('[!] WARNING - Skipping password not a valid hex string: ' .. lines[counter])
+       print('[!] WARNING - Skipping password not a valid hex string: '..password)
        skip_to_next = 1
       end
      end
     end
    end
    if skip_to_next == 0 then
-    local c = string.format( command, password )
-    core.console(c)
-    -- show hex value (if not password is hex already)
-    if lines[counter] ~= password then 
+   command = 'hf mfu i -k %4s'
+    local cmd = string.format( command, password )
+    core.console(cmd)
+    if lines[counter] ~= password then -- show hex value (if not the password was a hex value already)
      print('[=] Tested password: "'..ansicolors.yellow..ansicolors.bright..lines[counter]..ansicolors.reset..'" (Hex: '..password..')')
     else
      print('[=] Tested password: "'..ansicolors.yellow..ansicolors.bright..lines[counter]..ansicolors.reset..'"')
     end
     passwords_left_to_try = count_lines - counter
-    print('[+] Passwords left to try: '..ansicolors.green..ansicolors.bright..passwords_left_to_try .. ansicolors.reset..' of '..ansicolors.green..ansicolors.bright..count_lines..ansicolors.reset)
-    print('[=] Ran command: "'..c..'"')
-    print('[=] -------------------------------------------------------------')
+    print('[+] Passwords left to try: '..ansicolors.green..ansicolors.bright..passwords_left_to_try..ansicolors.reset..' of '..ansicolors.green..ansicolors.bright..count_lines..ansicolors.reset)
+    print('[=] Ran command: "'..cmd..'"')
     core.console('msleep -t'..timeout);
-    core.console('hw ping')
+    if use_ping then
+    print('[=] -------------------------------------------------------------')
+     core.console('hw ping')
+    end
     print('[=] -------------------------------------------------------------')
    end
    counter = counter+1
