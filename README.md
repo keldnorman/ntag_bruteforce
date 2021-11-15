@@ -91,6 +91,7 @@ Arguments
     -i       input_file           Read 4 char ASCII values to test from this file (will override -s and -e )
     -x                            Password file (-i) contains HEX values (4 x 2hex -> 32 bit/line)
     -o       output_file          Write output to this file
+    -p                            skip ping (save some time)
     -s       0-0xFFFFFFFF         start id
     -e       0-0xFFFFFFFF         end id
     -t       0-99999, pause       timeout (ms) between cards 1000 = 1 second
